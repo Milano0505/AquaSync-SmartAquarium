@@ -67,7 +67,6 @@ export default function DevicesSection({ aquariumId, onDataChanged }) {
     return (
         <SectionCard
             title="Device"
-            description="Each aquarium has exactly one ESP32. Its key only works for this aquarium."
         >
             <StatusMessages status={status} extraError={loadError} />
 

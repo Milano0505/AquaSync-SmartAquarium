@@ -4,7 +4,7 @@ import { addAquariumNotification } from "./notification-records.js";
 // poll default
 const DEFAULT_POLL_FREQUENCY_SECONDS = 5;
 // minimal offline
-const MIN_OFFLINE_THRESHOLD_SECONDS = 120;
+const MIN_OFFLINE_THRESHOLD_SECONDS = 60;
 // interval cek
 const OFFLINE_CHECK_INTERVAL_MS = 30_000;
 

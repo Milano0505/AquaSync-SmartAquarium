@@ -1,5 +1,0 @@
-node_modules
-.env
-serviceAccountKey.json
-serviceAccountKey2.json
-.dev-jwt-secret

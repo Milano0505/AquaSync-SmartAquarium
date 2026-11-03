@@ -92,9 +92,8 @@ export default function AquariumPeople({ aquariumId, isAdmin, onDataChanged }) {
             {isAdmin && (
                 <SectionCard
                     title="Owners"
-                    description="Owners control this aquarium and can add or remove its members."
                 >
-                    {renderPersonList(owners, "No owner yet. Add an owner so someone can manage members.")}
+                    {renderPersonList(owners, "No owner yet.")}
                     <AddPersonPanel
                         label="Add owner"
                         candidates={candidates}
@@ -106,7 +105,6 @@ export default function AquariumPeople({ aquariumId, isAdmin, onDataChanged }) {
 
             <SectionCard
                 title="Members"
-                description="Members can monitor and control this aquarium, but cannot manage people."
             >
                 {renderPersonList(memberRoleList, "No members yet.")}
                 <AddPersonPanel
