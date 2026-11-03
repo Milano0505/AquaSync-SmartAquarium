@@ -59,6 +59,10 @@ const EMPTY_REALTIME_STATE = {
 const DEFAULT_TARGET_TEMP = 24;
 // refresh interval
 const DASHBOARD_REFRESH_SECONDS = 10;
+// fast refresh
+const DASHBOARD_FAST_REFRESH_SECONDS = 2.5;
+// fast refresh limit
+const DASHBOARD_FAST_REFRESH_MAX_SECONDS = 90;
 
 // hour options
 const SCHEDULE_HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
@@ -88,7 +92,7 @@ const toTimestampMs = value => (value ? new Date(value).getTime() : NaN);
 function checkDeviceOnline(lastUpdated, pollFrequency) {
     const last = toTimestampMs(lastUpdated);
     if (!Number.isFinite(last)) return false;
-    return Date.now() - last <= Math.max(120, 3 * (pollFrequency || 5)) * 1000;
+    return Date.now() - last <= Math.max(60, 3 * (pollFrequency || 5)) * 1000;
 }
 
 // feed pending
@@ -97,6 +101,18 @@ function isFeedPending(lastTriggeredAt, lastUpdated) {
     if (!Number.isFinite(triggered)) return false;
     const updated = toTimestampMs(lastUpdated);
     return !Number.isFinite(updated) || triggered > updated;
+}
+
+// awaiting device
+function isAwaitingDevice(aquarium) {
+    const { tempConfig, lightingConfig, feederConfig, realtimeState } = aquarium;
+    const lastUpdated = realtimeState?.lastUpdated;
+    if (!checkDeviceOnline(lastUpdated, aquarium.systemConfig?.pollFrequency)) return false;
+    return (
+        isFeedPending(feederConfig?.lastTriggeredAt, lastUpdated) ||
+        (tempConfig?.mode === "MANUAL" && tempConfig.manualControlState !== realtimeState?.heaterStatus) ||
+        (lightingConfig?.mode === "MANUAL" && lightingConfig.manualControlState !== realtimeState?.ledStatus)
+    );
 }
 
 // time select
@@ -852,15 +868,28 @@ export default function DashboardPage({ onSuccessNotice }) {
 
     const pollFrequency = aquarium?.systemConfig?.pollFrequency;
     const isLoaded = Boolean(aquarium);
+    const awaitingDevice = isLoaded && isAwaitingDevice(aquarium);
+    const [isFastRefreshActive, setIsFastRefreshActive] = useState(false);
+    // fast refresh window
+    useEffect(() => {
+        setIsFastRefreshActive(awaitingDevice);
+        if (!awaitingDevice) return undefined;
+        const timeoutId = window.setTimeout(
+            () => setIsFastRefreshActive(false),
+            DASHBOARD_FAST_REFRESH_MAX_SECONDS * 1000,
+        );
+        return () => window.clearTimeout(timeoutId);
+    }, [awaitingDevice]);
+    const refreshSeconds = isFastRefreshActive ? DASHBOARD_FAST_REFRESH_SECONDS : DASHBOARD_REFRESH_SECONDS;
     // auto refresh
     useEffect(() => {
         if (!isLoaded) return undefined;
         const intervalId = window.setInterval(() => {
             if (document.visibilityState !== "visible") return;
             refreshDashboardData().catch(error => console.warn("Unable to refresh the dashboard.", error));
-        }, DASHBOARD_REFRESH_SECONDS * 1000);
+        }, refreshSeconds * 1000);
         return () => window.clearInterval(intervalId);
-    }, [isLoaded, refreshDashboardData]);
+    }, [isLoaded, refreshSeconds, refreshDashboardData]);
 
     // run action
     const runDashboardAction = async (action, successMessage, failureMessage) => {

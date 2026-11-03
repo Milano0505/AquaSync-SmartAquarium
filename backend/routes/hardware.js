@@ -5,6 +5,12 @@ import { requireDeviceKey, requireDeviceOwnsAquarium } from "../middleware/auth.
 import { getConfigVersion, waitForConfigChange } from "../utils/config-change-events.js";
 import { offlineThresholdSeconds, recordTelemetryReceived } from "../utils/device-watchdog.js";
 import { addAquariumNotification } from "../utils/notification-records.js";
+import {
+    detectTelemetryChanges,
+    loadPreviousHistoryRecord,
+    refreshNextRecordChanges,
+    toTelemetrySnapshot,
+} from "../utils/telemetry-changes.js";
 
 // router hardware
 const hardwareRouter = Router();
@@ -184,9 +190,16 @@ hardwareRouter.post("/:aquariumId/telemetry", async (req, res) => {
         }
 
         if (shouldSaveHistory) {
+            // bandingkan sebelumnya
+            const previousRecord = await loadPreviousHistoryRecord(
+                (sqlText, params) => client.query(sqlText, params),
+                aquariumId,
+                measuredAt || now,
+            );
+            const snapshot = toTelemetrySnapshot(req.body, event);
             await client.query(
-                `insert into telemetry_history (aquarium_id, recorded_at, temp, heater_state, led_state, feeder_state, event)
-                 values ($1, coalesce($2, now()), $3, $4, $5, $6, $7)
+                `insert into telemetry_history (aquarium_id, recorded_at, temp, heater_state, led_state, feeder_state, event, changes)
+                 values ($1, coalesce($2, now()), $3, $4, $5, $6, $7, $8)
                  on conflict (aquarium_id, recorded_at) do nothing`,
                 [
                     aquariumId,
@@ -195,7 +208,8 @@ hardwareRouter.post("/:aquariumId/telemetry", async (req, res) => {
                     heaterStatus,
                     ledStatus,
                     feederStatus,
-                    event || "Telemetry update",
+                    snapshot.event,
+                    detectTelemetryChanges(previousRecord, snapshot),
                 ],
             );
         }
@@ -276,15 +290,27 @@ hardwareRouter.post("/:aquariumId/telemetry/backlog", async (req, res) => {
         });
 
     if (validReadings.length > 0) {
+        // urut waktu
+        validReadings.sort((a, b) => a.measuredAt - b.measuredAt);
         const readingEvents = validReadings.map(({ reading }) =>
             typeof reading.event === "string" && reading.event.trim()
                 ? reading.event.trim().slice(0, 160)
                 : "Telemetry update",
         );
+        // bandingkan sebelumnya
+        let previousSnapshot = await loadPreviousHistoryRecord(queryDatabase, aquarium.id, validReadings[0].measuredAt);
+        const readingChanges = validReadings.map(({ reading }, index) => {
+            const snapshot = toTelemetrySnapshot(reading, readingEvents[index]);
+            const changes = detectTelemetryChanges(previousSnapshot, snapshot);
+            previousSnapshot = snapshot;
+            return changes.join(",");
+        });
         // insert massal
         await queryDatabase(
-            `insert into telemetry_history (aquarium_id, recorded_at, temp, heater_state, led_state, feeder_state, event)
-             select $1, * from unnest($2::timestamptz[], $3::numeric[], $4::text[], $5::text[], $6::text[], $7::text[])
+            `insert into telemetry_history (aquarium_id, recorded_at, temp, heater_state, led_state, feeder_state, event, changes)
+             select $1, r.recorded_at, r.temp, r.heater_state, r.led_state, r.feeder_state, r.event, string_to_array(r.changes, ',')
+             from unnest($2::timestamptz[], $3::numeric[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[])
+                  as r(recorded_at, temp, heater_state, led_state, feeder_state, event, changes)
              on conflict (aquarium_id, recorded_at) do nothing`,
             [
                 aquarium.id,
@@ -294,8 +320,11 @@ hardwareRouter.post("/:aquariumId/telemetry/backlog", async (req, res) => {
                 validReadings.map(({ reading }) => reading.ledStatus),
                 validReadings.map(({ reading }) => reading.feederStatus),
                 readingEvents,
+                readingChanges,
             ],
         );
+        // data live lebih dulu
+        await refreshNextRecordChanges(queryDatabase, aquarium.id, validReadings.at(-1).measuredAt);
     }
     return res.status(201).json({ accepted: validReadings.length, skipped: readings.length - validReadings.length });
 });

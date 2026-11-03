@@ -44,7 +44,7 @@ export default function AquariumSummary({ aquarium, onDataChanged }) {
                 <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">Public monitoring for viewers</div>
                     <div className="text-xs text-slate-400">
-                        Users without a role can see this aquarium on the dashboard (read-only).
+                        Users without a role can see this aquarium on the dashboard.
                     </div>
                 </div>
                 <ToggleSwitch

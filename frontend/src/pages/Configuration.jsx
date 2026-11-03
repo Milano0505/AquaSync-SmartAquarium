@@ -251,7 +251,7 @@ function ProfileTab() {
                             </button>
                         )}
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-400">JPG, PNG, or WebP up to 10 MB. Saved right away.</p>
+                    <p className="mt-1 text-[11px] text-slate-400">JPG, PNG, or WebP up to 10 MB.</p>
 
                     <input
                         ref={photoFileInputRef}
@@ -382,10 +382,6 @@ function SystemTab({ aquarium, updateAquariumSection, isSaving, onSaveSettings }
             <Card className="space-y-4">
                 <div>
                     <p className="text-sm font-bold text-slate-700">Data Send Interval</p>
-                    <p className="mt-0.5 text-xs text-slate-400">
-                        How often the device sends its latest reading to the dashboard. The temperature sensor itself is
-                        read every 5 seconds, and the heater reacts to it right away.
-                    </p>
                 </div>
                 <RangeSlider
                     label="Send interval"
@@ -463,7 +459,6 @@ function AlertsTab({
                 <div className="flex items-center justify-between gap-4 py-3">
                     <div>
                         <div className="text-sm font-semibold text-slate-700">Browser Notifications</div>
-                        <div className="text-xs text-slate-400">Show new alerts on this device</div>
                     </div>
                     <ToggleSwitch
                         checked={browserNotifications.isEnabled}

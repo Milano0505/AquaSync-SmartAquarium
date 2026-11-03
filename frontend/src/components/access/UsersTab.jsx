@@ -64,7 +64,7 @@ export default function UsersTab() {
     );
 
     return (
-        <SectionCard title="All users" description="Users without any role can only watch public monitoring (viewer).">
+        <SectionCard title="All users">
             <StatusMessages status={status} extraError={loadError} />
             <input
                 value={searchText}

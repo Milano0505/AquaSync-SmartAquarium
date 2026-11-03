@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { adminGetAquariums } from "../../api/backendApi";
 import { useAuth } from "../../context/AuthContext";
 import { ErrorAlert, LoadingSpinner } from "../UiKit";
+import { EmptyState, SmallButton } from "./AccessUiParts";
 import AquariumPeople from "./AquariumPeople";
 import AquariumSummary from "./AquariumSummary";
 import DevicesSection from "./DevicesSection";
 import NewAquariumForm from "./NewAquariumForm";
-import { EmptyState, SmallButton } from "./AccessUiParts";
 import UsersTab from "./UsersTab";
 
 // admin tabs

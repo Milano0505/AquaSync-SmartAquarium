@@ -186,7 +186,7 @@ async function queryTelemetryRecords(aquariumId, queryParams) {
 
     const { rows } = await queryDatabase(
         `select id, aquarium_id as "aquariumId", recorded_at as "timestamp", temp,
-                heater_state as "heaterState", led_state as "ledState", feeder_state as "feederState", event
+                heater_state as "heaterState", led_state as "ledState", feeder_state as "feederState", event, changes
          from telemetry_history
          where aquarium_id = $1
            and ($2::timestamptz is null or recorded_at >= $2)

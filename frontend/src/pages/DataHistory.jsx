@@ -161,9 +161,13 @@ function HistoryTableTab({ records }) {
     // filter records
     const searchQuery = searchText.toLowerCase();
     const filteredRecords = records.filter(record => {
+        // changes tersembunyi
         const matchesSearch =
-            !searchQuery || Object.values(record).some(value => String(value).toLowerCase().includes(searchQuery));
-        const matchesFilter = eventFilter === "all" || (record.event || "").toLowerCase().includes(eventFilter);
+            !searchQuery ||
+            Object.entries(record).some(
+                ([field, value]) => field !== "changes" && String(value).toLowerCase().includes(searchQuery),
+            );
+        const matchesFilter = eventFilter === "all" || (record.changes || []).includes(eventFilter);
         return matchesSearch && matchesFilter;
     });
     const totalPages = Math.ceil(filteredRecords.length / RECORDS_PER_PAGE);

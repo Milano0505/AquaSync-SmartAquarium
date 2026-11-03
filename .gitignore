@@ -1,10 +1,11 @@
+# ---------- Umum ----------
 .env
 .env.*
 !.env.example
 **/.env
 **/.env.*
 !**/.env.example
-**/serviceAccountKey.json
+**/serviceAccountKey*.json
 **/.dev-jwt-secret
 **/node_modules/
 **/dist/
@@ -13,8 +14,34 @@
 .DS_Store
 Thumbs.db
 
-# Pengaturan Claude Code pribadi
-.claude/settings.local.json
-
 # Pengaturan editor lokal
 .vscode/
+
+# Catatan sementara
+/temp/
+
+# ---------- backend ----------
+# Test backend
+/backend/tests/
+
+# Status lokal Supabase CLI
+/backend/supabase/.temp
+/backend/supabase/.branches
+
+# ---------- device (PlatformIO) ----------
+/device/**/.pio
+/device/include/secrets.h
+/device/**/compile_commands.json
+
+# ---------- frontend ----------
+/frontend/**/.cache/
+/frontend/**/.vite/
+/frontend/**/vite.config.*.timestamp-*
+/frontend/**/*-debug.log*
+/frontend/**/logs/
+/frontend/**/.claude-replay.*
+/frontend/**/.tmp-*
+# Platform-managed agentplat state. These directories contain local tooling
+# state rather than project source.
+/frontend/.plugins/
+/frontend/.opencode-skills/
