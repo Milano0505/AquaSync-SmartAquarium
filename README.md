@@ -1,12 +1,12 @@
-# Smart Aquarium Control
+# Smart Aquarium AquaSync
 
-Sistem monitoring dan kontrol akuarium berbasis ESP32, dengan backend Node.js/Express, database Supabase PostgreSQL, dan dashboard web React.
+Sistem monitoring dan kontrol akuarium.
 
 ## System Architecture
 
 * **Device:** ESP32 dengan sensor suhu DS18B20 dan relay heater/lampu. Berkomunikasi lewat HTTP: config diambil dengan long polling, telemetri dikirim lewat POST.
 * **Backend:** Node.js / Express. Mengelola logika bisnis, autentikasi, role, dan akses database.
-* **Database:** Supabase PostgreSQL. Menyimpan akun, akuarium, config, dan histori telemetri (hanya diakses lewat Backend).
+* **Database:** Supabase PostgreSQL. Menyimpan akun, akuarium, config, dan histori telemetri.
 * **Frontend:** React + Vite + Tailwind CSS. Dashboard telemetri dan kontrol akuarium, login lewat Supabase Auth.
 
 ## Quick Start & Installation
