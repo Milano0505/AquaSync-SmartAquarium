@@ -29,8 +29,7 @@ export async function findAccessibleAquarium(
 ) {
     if (!isValidAquariumId(aquariumId)) return null;
     const { rows } = await dbClient.query(
-        `select ${AQUARIUM_SELECT_COLUMNS}, m.role as member_role,
-                (a.monitoring_public and not exists (select 1 from aquarium_members x where x.user_id = $2)) as viewer_access
+        `select ${AQUARIUM_SELECT_COLUMNS}, m.role as member_role
          from aquariums a
          left join device_state ds on ds.aquarium_id = a.id
          left join aquarium_members m on m.aquarium_id = a.id and m.user_id = $2
@@ -41,8 +40,8 @@ export async function findAccessibleAquarium(
     const row = rows[0];
     if (!row) return null;
 
-    const role = authUser.role === "admin" ? "admin" : (row.member_role ?? (row.viewer_access ? "viewer" : null));
-    if (!role) throw forbiddenError("You do not have access to this aquarium.");
+    // bukan anggota = viewer
+    const role = row.member_role ?? "viewer";
     if (!hasMinimumRole(role, minimumRole)) throw forbiddenError(`This action requires the ${minimumRole} role.`);
     return { id: row.id, row, role };
 }
@@ -79,7 +78,6 @@ export async function buildAquariumResponse(aquarium) {
         id: row.id,
         name: row.name,
         role,
-        monitoringPublic: row.monitoring_public,
         hardwareInfo: row.hardware_info,
         realtimeState: {
             currentTemp: row.current_temp,

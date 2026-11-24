@@ -45,18 +45,18 @@ Tabel: `profiles`, `aquariums`, `aquarium_members`, `devices`, `device_state` (s
 
 ```text
 backend/
-  index.js                 titik masuk, mount /api/auth|users|admin|aquariums|hardware
-  routes/                  auth, users, admin, aquariums, hardware
+  index.js                 titik masuk, mount /api/auth|users|aquariums|hardware
+  routes/                  auth, users, aquariums, hardware
   middleware/auth.js       requireUserAuth, requireDeviceKey, requireDeviceOwnsAquarium
   config/                  database.js, aquarium-repository.js, default-aquarium.js
-  utils/                   access-roles, config-change-events (long poll), config-validation,
+  utils/                   access-roles (urutan viewer<member<owner), config-change-events (long poll), config-validation,
                            device-watchdog, telemetry-changes, notification-records,
                            http-errors, profile-photo-validation, ttl-cache
-  supabase/migrations/     5 file SQL (init, viewer_monitoring, one_device_per_aquarium,
-                           telemetry_changes, function_search_path)
+  supabase/migrations/     6 file SQL (init, viewer_monitoring, one_device_per_aquarium,
+                           telemetry_changes, function_search_path, multi_tenant)
   tests/                   di-.gitignore, jalankan: npm test
 frontend/src/
-  pages/                   Dashboard, DataHistory, Notifications, Configuration, Access, Login, Register
+  pages/                   Dashboard, DataHistory, Notifications, Configuration, Aquariums, Login, Register
   components/ context/ hooks/ utils/
   api/backendApi.js        semua panggilan ke backend
   supabaseAuth.js          klien Supabase Auth (login saja)
@@ -92,21 +92,22 @@ docs/code-reference.md     ±5.900 baris: tiap file, fungsi, dan query SQL dijel
 * Pin: DS18B20 **GPIO 4**, relay heater **GPIO 18**, relay lampu **GPIO 19**, buzzer **GPIO 5**. Relay **aktif LOW**. Tidak ada RTC, waktu dari NTP.
 * **Feeder belum ada di firmware.** Backend dan dashboard sudah punya jadwal dan *Feed Now*, tetapi firmware hanya mengirim `feederStatus: "Idle"` (stub).
 
-### Autentikasi dan peran
+### Autentikasi dan peran (multi-tenant)
 
+* **Model tenancy:** *shared schema*. Satu database, **tenant = akuarium**, data dipisah oleh kolom `aquarium_id`. Tidak ada admin global.
 * **Pengguna:** Supabase Auth → JWT → `Authorization: Bearer`. Backend memverifikasi dengan `getClaims()` (cache 30 detik).
-* **Perangkat:** device key acak 32 byte di header `x-device-key`. Database hanya menyimpan **hash SHA-256**. Key hanya valid untuk akuarium miliknya. Key **hanya tampil sekali** saat perangkat didaftarkan.
-* **Peran:** global `admin`/`user`, plus per akuarium `owner`/`member`. Pengguna tanpa keanggotaan = **viewer**. Urutan: `viewer` < `member` < `owner` < `admin`.
+* **Perangkat:** device key acak 32 byte di header `x-device-key`. Database hanya menyimpan **hash SHA-256**. Key hanya valid untuk akuarium miliknya. Key **hanya tampil sekali** (saat daftar atau rotate key).
+* **Peran per akuarium** (dihitung tiap request, bukan disimpan di profil): `owner` (tepat 1, indeks unik `aquarium_one_owner`), `member`, `viewer` (semua user login yang bukan owner/member akuarium itu). Urutan: `viewer` < `member` < `owner`.
 
 | Peran | Boleh |
 | --- | --- |
-| admin | Semuanya: buat akuarium, tunjuk owner, daftarkan/cabut perangkat, ubah peran, atur `monitoring_public` |
-| owner | Seperti member, plus tambah/hapus **member** di akuariumnya |
-| member | Ubah config dan jalankan Feed Now |
-| viewer | Hanya melihat akuarium yang `monitoring_public = true` |
+| owner | Seperti member, plus terima/tolak join request, hapus member, kelola perangkat (daftar, rotate key, cabut), ganti nama, hapus akuarium |
+| member | Ubah config, Feed Now, lihat riwayat, notifikasi, daftar anggota dan status perangkat, keluar dari akuarium |
+| viewer | Hanya melihat monitoring (Dashboard dan grafik) akuarium mana pun. Bisa mengajukan join |
 
 * Penegakan ada di satu fungsi: `findAccessibleAquarium(id, authUser, minimumRole)` di `backend/config/aquarium-repository.js`.
-* Pengguna baru selalu viewer. **Satu akuarium = satu perangkat.** Halaman Access hanya untuk admin dan owner. `ADMIN_EMAILS` menentukan admin pertama.
+* Alur bergabung: viewer `POST /aquariums/:id/join-requests` → owner `approve`/`reject` di tab My Aquariums (tabel `aquarium_join_requests`, baris dihapus setelah diproses). Pembuat akuarium otomatis owner (`POST /aquariums`, boleh sekaligus mendaftarkan perangkat). `POST /aquariums/:id/claim` hanya untuk akuarium lama tanpa owner.
+* **Satu akuarium = satu perangkat.** Halaman Aquariums (tab All Aquariums dan My Aquariums) terbuka untuk semua user.
 
 ### Perilaku telemetri di backend
 
@@ -130,7 +131,7 @@ pio run -d device                                              # compile firmwar
 | Format | `npm run format` (backend), `pnpm format` (frontend) |
 | Push migrasi | `cd backend && npx supabase db push --linked` |
 
-* Env backend: `PORT`, `FRONTEND_ORIGIN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DATABASE_URL` (**Session pooler**, port 5432), `DATABASE_SSL`, `DB_POOL_MAX`, `ADMIN_EMAILS`. Env frontend: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
+* Env backend: `PORT`, `FRONTEND_ORIGIN`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `DATABASE_URL` (**Session pooler**, port 5432), `DATABASE_SSL`, `DB_POOL_MAX`. Env frontend: `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
 * `PORT` backend, `VITE_API_URL`, dan `API_BASE_URL` firmware harus cocok.
 * Firmware: salin `device/include/secrets.example.h` menjadi `secrets.h` (`WIFI_SSID` 2,4 GHz, `WIFI_PASSWORD`, `API_BASE_URL` berupa IP laptop bukan `localhost`, `AQUARIUM_ID`, `DEVICE_KEY`). Serial Monitor 115200.
 * Setelah mengubah kode, jalankan tes dan build yang relevan sebelum menyatakan selesai.
@@ -141,7 +142,7 @@ pio run -d device                                              # compile firmwar
 * **Bahasa:** kode, nama identifier, dan pesan commit **Inggris**. Komentar kode **1–2 kata, bahasa Indonesia** (contoh: `// aktif LOW`, `// cutoff heater`). Jangan menulis komentar panjang atau kalimat: pemilik ingin hasil pencarian yang bersih.
 * **Penamaan:** deskriptif dan mudah dicari (`requireUserAuth`, `HEATER_HYSTERESIS_C`).
 * **Format:** Prettier, indent **4 spasi**, lebar 120, `arrowParens: avoid`.
-* **Commit:** Conventional Commits, ringkasan < 72 karakter, lalu daftar poin. Contoh: `feat: add viewer role, new Access page`. Repo memakai squash merge dengan nomor PR. Pemilik biasanya meminta **satu pesan commit yang bisa disalin**; **jangan menjalankan `git commit` atau `push` kecuali diminta.**
+* **Commit:** Conventional Commits, ringkasan < 72 karakter, lalu daftar poin. Contoh: `feat: add multi-tenant aquariums, join requests`. Repo memakai squash merge dengan nomor PR. Pemilik biasanya meminta **satu pesan commit yang bisa disalin**; **jangan menjalankan `git commit` atau `push` kecuali diminta.**
 * **CRLF/LF:** banyak file bisa tampil "modified" hanya karena akhir baris. Stage per jalur, hindari `git add -A`.
 * **Markdown:** bullet `*` dengan indent 4 (`.markdownlint.jsonc`: MD007 indent 4, MD013 mati). Dokumen untuk non-engineer (seperti `code-reference.md`) ditulis dalam bahasa awam, jaga gayanya.
 * **Jangan menambah fitur atau abstraksi di luar permintaan.** Proyek ini sengaja sederhana.

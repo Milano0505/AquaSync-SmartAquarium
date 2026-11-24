@@ -16,7 +16,6 @@ function toUserProfileResponse(row) {
         userId: row.id,
         fullName: row.full_name,
         email: row.email,
-        role: row.role === "admin" ? "admin" : "user",
         photoUrl: row.photo_url ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -30,7 +29,7 @@ function isOwnProfileRequest(req) {
 
 // baca profil
 userRouter.get("/:userId", async (req, res) => {
-    if (!isOwnProfileRequest(req) && req.authUser.role !== "admin") {
+    if (!isOwnProfileRequest(req)) {
         return res.status(403).json({ message: "You cannot access this user profile." });
     }
     if (!isUuid(req.params.userId)) return res.status(404).json({ message: "User profile was not found." });

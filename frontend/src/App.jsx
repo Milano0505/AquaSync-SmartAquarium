@@ -4,7 +4,7 @@ import AppLayout from "./components/AppLayout";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import useBrowserNotifications from "./hooks/useBrowserNotifications";
 import useUnreadNotificationCount from "./hooks/useUnreadNotificationCount";
-import AccessPage from "./pages/Access";
+import AquariumsPage from "./pages/Aquariums";
 import ConfigurationPage from "./pages/Configuration";
 import DashboardPage from "./pages/Dashboard";
 import DataHistoryPage from "./pages/DataHistory";
@@ -28,26 +28,9 @@ function ProtectedRoute({ children }) {
     return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-// no aquarium
-function NoAquariumNotice() {
-    const { signOut } = useAuth();
-    return (
-        <div className="px-4 py-10 text-center">
-            <h1 className="text-xl font-bold text-slate-800">No aquarium to show yet</h1>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-slate-500">
-                Your account is ready, but there is no aquarium for it yet. Ask an admin to give you access. You can
-                still update your profile in Config.
-            </p>
-            <button onClick={signOut} className="mt-4 text-sm font-semibold text-blue-500 hover:underline">
-                Sign out
-            </button>
-        </div>
-    );
-}
-
 // app routes
 function AppRoutes() {
-    const { user, activeAquariumId, isAdmin, isViewer, canOpenAccessPage } = useAuth();
+    const { user, activeAquariumId, isViewer } = useAuth();
     const userId = user?.id || user?.userId;
     // notification state
     const alertsAquariumId = isViewer ? null : activeAquariumId;
@@ -85,49 +68,53 @@ function AppRoutes() {
                             onDismissSuccessNotice={() => setSystemNotice("")}
                         >
                             {/* page routes */}
-                            <Routes key={activeAquariumId}>
-                                {canOpenAccessPage && <Route path="/access" element={<AccessPage />} />}
+                            <Routes>
+                                <Route path="/aquariums/:tab?" element={<AquariumsPage />} />
                                 <Route
-                                    path="/configuration"
-                                    element={<ConfigurationPage browserNotifications={browserNotifications} />}
-                                />
-                                {activeAquariumId ? (
-                                    <>
-                                        <Route path="/dashboard" element={dashboardElement} />
-                                        <Route path="/dashboard/:tab" element={dashboardElement} />
-                                        <Route
-                                            path="/history"
-                                            element={
-                                                isViewer ? <Navigate to="/dashboard" replace /> : <DataHistoryPage />
-                                            }
-                                        />
-                                        <Route
-                                            path="/notifications"
-                                            element={
-                                                isViewer ? (
-                                                    <Navigate to="/dashboard" replace />
-                                                ) : (
-                                                    <NotificationsPage
-                                                        onUnreadCountChange={setUnreadNotificationCount}
-                                                        onSuccessNotice={showSuccessNotice}
+                                    path="*"
+                                    element={
+                                        <Routes key={activeAquariumId}>
+                                            <Route
+                                                path="/configuration"
+                                                element={
+                                                    <ConfigurationPage browserNotifications={browserNotifications} />
+                                                }
+                                            />
+                                            {activeAquariumId ? (
+                                                <>
+                                                    <Route path="/dashboard" element={dashboardElement} />
+                                                    <Route path="/dashboard/:tab" element={dashboardElement} />
+                                                    <Route
+                                                        path="/history"
+                                                        element={
+                                                            isViewer ? (
+                                                                <Navigate to="/dashboard" replace />
+                                                            ) : (
+                                                                <DataHistoryPage />
+                                                            )
+                                                        }
                                                     />
-                                                )
-                                            }
-                                        />
-                                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                                    </>
-                                ) : (
-                                    <Route
-                                        path="*"
-                                        element={
-                                            isAdmin || canOpenAccessPage ? (
-                                                <Navigate to="/access" replace />
+                                                    <Route
+                                                        path="/notifications"
+                                                        element={
+                                                            isViewer ? (
+                                                                <Navigate to="/dashboard" replace />
+                                                            ) : (
+                                                                <NotificationsPage
+                                                                    onUnreadCountChange={setUnreadNotificationCount}
+                                                                    onSuccessNotice={showSuccessNotice}
+                                                                />
+                                                            )
+                                                        }
+                                                    />
+                                                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                                                </>
                                             ) : (
-                                                <NoAquariumNotice />
-                                            )
-                                        }
-                                    />
-                                )}
+                                                <Route path="*" element={<Navigate to="/aquariums/all" replace />} />
+                                            )}
+                                        </Routes>
+                                    }
+                                />
                             </Routes>
                         </AppLayout>
                     </ProtectedRoute>

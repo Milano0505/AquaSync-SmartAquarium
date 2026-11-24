@@ -42,6 +42,7 @@ export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [aquariums, setAquariums] = useState([]);
     const [selectedAquariumId, setSelectedAquariumId] = useState(readStoredAquariumId);
+    const [viewedAquarium, setViewedAquarium] = useState(null);
 
     // load aquariums
     const loadAquariumList = useCallback(async () => {
@@ -63,6 +64,7 @@ export function AuthProvider({ children }) {
     const clearAuthState = useCallback(() => {
         setUser(null);
         setAquariums([]);
+        setViewedAquarium(null);
     }, []);
 
     // sign out
@@ -135,7 +137,8 @@ export function AuthProvider({ children }) {
     }, [clearAuthState]);
 
     // active aquarium
-    const activeAquarium = aquariums.find(aquarium => aquarium.id === selectedAquariumId) || aquariums[0] || null;
+    const mineAquarium = aquariums.find(aquarium => aquarium.id === (viewedAquarium?.id ?? selectedAquariumId));
+    const activeAquarium = mineAquarium || viewedAquarium || aquariums[0] || null;
     const activeAquariumId = activeAquarium?.id ?? null;
     const activeAquariumRole = activeAquarium?.role ?? null;
 
@@ -143,15 +146,25 @@ export function AuthProvider({ children }) {
     const selectActiveAquarium = aquariumId => {
         storeActiveAquariumId(aquariumId);
         setSelectedAquariumId(aquariumId);
+        setViewedAquarium(null);
     };
 
+    // open aquarium
+    const openAquarium = ({ id, name, role }) => {
+        if (role) {
+            selectActiveAquarium(id);
+        } else {
+            setViewedAquarium({ id, name, role: "viewer" });
+        }
+    };
+
+    // stop viewing
+    const stopViewing = () => setViewedAquarium(null);
+
     // role flags
-    const isAdmin = user?.role === "admin";
-    const canControlAquarium =
-        activeAquariumRole === "member" || activeAquariumRole === "owner" || activeAquariumRole === "admin";
+    const canControlAquarium = activeAquariumRole === "member" || activeAquariumRole === "owner";
     const isViewer = activeAquariumRole === "viewer";
-    const ownedAquariums = aquariums.filter(aquarium => aquarium.role === "owner");
-    const canOpenAccessPage = isAdmin || ownedAquariums.length > 0;
+    const isViewingOtherAquarium = Boolean(viewedAquarium) && !mineAquarium;
 
     return (
         <AuthContext.Provider
@@ -167,12 +180,12 @@ export function AuthProvider({ children }) {
                 activeAquariumId,
                 activeAquariumRole,
                 selectActiveAquarium,
-                isAdmin,
+                openAquarium,
+                stopViewing,
+                isViewingOtherAquarium,
+                viewedAquariumName: viewedAquarium?.name ?? "",
                 canControlAquarium,
-                canManageAccess: activeAquariumRole === "owner" || activeAquariumRole === "admin",
-                canOpenAccessPage,
                 isViewer,
-                ownedAquariums,
             }}
         >
             {children}

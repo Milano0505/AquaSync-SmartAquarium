@@ -67,7 +67,7 @@ export function PersonRow({ person, children }) {
                 </div>
                 <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-800">{name}</div>
-                    <div className="truncate text-xs text-slate-400">{person.email}</div>
+                    {person.email && <div className="truncate text-xs text-slate-400">{person.email}</div>}
                 </div>
             </div>
             <div className="flex flex-shrink-0 items-center gap-2">{children}</div>
@@ -96,5 +96,32 @@ export function SmallButton({ children, onClick, disabled, tone = "default", typ
         >
             {children}
         </button>
+    );
+}
+
+// device key notice
+export function DeviceKeyNotice({ deviceKey }) {
+    const [isKeyCopied, setIsKeyCopied] = useState(false);
+    if (!deviceKey) return null;
+
+    // copy key
+    const copyDeviceKey = async () => {
+        try {
+            await navigator.clipboard.writeText(deviceKey);
+            setIsKeyCopied(true);
+        } catch {
+            setIsKeyCopied(false);
+        }
+    };
+
+    return (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <div className="mb-1 font-semibold">Copy this key now. It will not be shown again.</div>
+            <code className="block break-all rounded bg-white px-2 py-1.5 text-xs">{deviceKey}</code>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+                <SmallButton onClick={copyDeviceKey}>{isKeyCopied ? "Copied" : "Copy key"}</SmallButton>
+                <span className="text-xs">Put it in device/include/secrets.h as DEVICE_KEY.</span>
+            </div>
+        </div>
     );
 }

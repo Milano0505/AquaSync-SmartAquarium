@@ -1,10 +1,8 @@
 // role styles
 const ROLE_BADGE_CLASSES = {
-    admin: "bg-purple-100 text-purple-700",
     owner: "bg-blue-100 text-blue-700",
     member: "bg-sky-100 text-sky-700",
     viewer: "bg-slate-100 text-slate-600",
-    user: "bg-slate-100 text-slate-600",
 };
 
 // role badge

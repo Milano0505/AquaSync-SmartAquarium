@@ -11,7 +11,6 @@ import {
     HistoryIcon,
     LogoutIcon,
     SettingsIcon,
-    UserIcon,
 } from "./Icons";
 
 // nav items
@@ -20,14 +19,13 @@ const NAV_ITEMS = {
     history: { path: "/history", label: "History", icon: HistoryIcon },
     alerts: { path: "/notifications", label: "Alerts", icon: BellIcon },
     config: { path: "/configuration", label: "Config", icon: SettingsIcon },
-    access: { path: "/access", label: "Access", icon: UserIcon },
+    aquariums: { path: "/aquariums", label: "Aquariums", icon: FishIcon },
 };
 // sidebar color
 const SIDEBAR_BACKGROUND_COLOR = "#0d1b4b";
 
 // role badge
 const HEADER_ROLE_BADGE_CLASSES = {
-    admin: "bg-purple-500/40 text-purple-100",
     owner: "bg-blue-500/40 text-blue-100",
     member: "bg-sky-500/30 text-sky-100",
     viewer: "bg-white/10 text-slate-300",
@@ -53,7 +51,9 @@ export default function AppLayout({ children, unreadNotificationCount = 0, succe
         activeAquariumRole,
         selectActiveAquarium,
         isViewer,
-        canOpenAccessPage,
+        isViewingOtherAquarium,
+        viewedAquariumName,
+        stopViewing,
     } = useAuth();
     const navigate = useNavigate();
     const { pathname } = useLocation();
@@ -66,8 +66,8 @@ export default function AppLayout({ children, unreadNotificationCount = 0, succe
     const visibleNavItems = [
         ...(hasAquarium ? [NAV_ITEMS.dashboard] : []),
         ...(hasAquarium && !isViewer ? [NAV_ITEMS.history, NAV_ITEMS.alerts] : []),
+        NAV_ITEMS.aquariums,
         NAV_ITEMS.config,
-        ...(canOpenAccessPage ? [NAV_ITEMS.access] : []),
     ];
     // active path
     const isNavPathActive = path => pathname === path || pathname.startsWith(`${path}/`);
@@ -173,9 +173,25 @@ export default function AppLayout({ children, unreadNotificationCount = 0, succe
                     </div>
 
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        {aquariums.length > 0 && (
+                        {(aquariums.length > 0 || isViewingOtherAquarium) && (
                             <div className="flex items-center gap-2">
-                                {aquariums.length > 1 ? (
+                                {isViewingOtherAquarium ? (
+                                    <>
+                                        <span className="hidden max-w-[140px] truncate text-xs font-semibold text-white/80 md:inline">
+                                            {viewedAquariumName}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                stopViewing();
+                                                navigate("/aquariums/all");
+                                            }}
+                                            className="rounded-lg border border-white/20 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/10"
+                                        >
+                                            Exit view
+                                        </button>
+                                    </>
+                                ) : aquariums.length > 1 ? (
                                     <select
                                         value={activeAquariumId || ""}
                                         onChange={event => selectActiveAquarium(event.target.value)}

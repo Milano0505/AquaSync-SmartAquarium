@@ -5,7 +5,7 @@ Sistem monitoring dan kontrol akuarium.
 ## System Architecture
 
 * **Device:** ESP32 dengan sensor suhu DS18B20 dan relay heater/lampu. Berkomunikasi lewat HTTP: config diambil dengan long polling, telemetri dikirim lewat POST.
-* **Backend:** Node.js / Express. Mengelola logika bisnis, autentikasi, role, dan akses database.
+* **Backend:** Node.js / Express. Mengelola logika bisnis, autentikasi, keanggotaan akuarium (multi-tenant), dan akses database.
 * **Database:** Supabase PostgreSQL. Menyimpan akun, akuarium, config, dan histori telemetri.
 * **Frontend:** React + Vite + Tailwind CSS. Dashboard telemetri dan kontrol akuarium, login lewat Supabase Auth.
 
@@ -75,7 +75,6 @@ Sistem monitoring dan kontrol akuarium.
 | `DATABASE_URL` | Connection string PostgreSQL (session pooler) | Backend | `postgresql://postgres.PROJECT_REF:[YOUR-PASSWORD]@aws-0-REGION.pooler.supabase.com:5432/postgres` |
 | `DATABASE_SSL` | Aktifkan SSL database (`false` untuk database lokal) | Backend | `true` |
 | `DB_POOL_MAX` | Jumlah maksimal koneksi pool | Backend | `5` |
-| `ADMIN_EMAILS` | Email (pisahkan koma) yang otomatis menjadi admin | Backend | `admin@example.com` |
 | `VITE_API_URL` | URL Backend API | Frontend | `http://localhost:5000` |
 | `VITE_SUPABASE_URL` | URL proyek Supabase | Frontend | `https://PROJECT_REF.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Anon/publishable key Supabase | Frontend | - |
