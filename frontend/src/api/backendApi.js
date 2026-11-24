@@ -237,42 +237,59 @@ export const deleteNotification = async (aquariumId, notificationId) =>
 // members
 export const getAquariumMembers = async aquariumId => requestBody(`${buildAquariumPath(aquariumId)}/members`);
 
-// member candidates
-export const getMemberCandidates = async aquariumId => requestBody(`${buildAquariumPath(aquariumId)}/candidates`);
-
-// save member
-export const saveAquariumMember = async (aquariumId, { userId, role }) =>
-    sendJson("PUT", `${buildAquariumPath(aquariumId)}/members`, { userId, role });
-
 // remove member
 export const removeAquariumMember = async (aquariumId, userId) =>
     sendJson("DELETE", `${buildAquariumPath(aquariumId)}/members/${encodeURIComponent(userId)}`);
 
-// admin users
-export const adminGetUsers = () => requestBody("/api/admin/users");
+// leave aquarium
+export const leaveAquarium = async aquariumId => sendJson("DELETE", `${buildAquariumPath(aquariumId)}/members/me`);
 
-// set role
-export const adminSetUserRole = (userId, role) =>
-    sendJson("PATCH", `/api/admin/users/${encodeURIComponent(userId)}`, { role });
-
-// admin aquariums
-export const adminGetAquariums = () => requestBody("/api/admin/aquariums");
+// aquarium directory
+export const getAquariumDirectory = () => requestBody("/api/aquariums/directory");
 
 // create aquarium
-export const adminCreateAquarium = ({ name, id, ownerId }) =>
-    sendJson("POST", "/api/admin/aquariums", { name, id, ownerId });
+export const createAquarium = ({ name, id, deviceName }) =>
+    sendJson("POST", "/api/aquariums", { name, id, deviceName });
 
-// update aquarium
-export const adminUpdateAquarium = async (aquariumId, payload) =>
-    sendJson("PATCH", `/api/admin/aquariums/${encodeURIComponent(aquariumId)}`, payload);
+// rename aquarium
+export const renameAquarium = async (aquariumId, name) => sendJson("PATCH", buildAquariumPath(aquariumId), { name });
 
-// admin devices
-export const adminGetDevices = async aquariumId =>
-    requestBody(`/api/admin/aquariums/${encodeURIComponent(aquariumId)}/devices`);
+// delete aquarium
+export const deleteAquarium = async aquariumId => sendJson("DELETE", buildAquariumPath(aquariumId));
 
-// create device
-export const adminCreateDevice = async (aquariumId, name) =>
-    sendJson("POST", `/api/admin/aquariums/${encodeURIComponent(aquariumId)}/devices`, { name });
+// claim aquarium
+export const claimAquarium = async aquariumId => sendJson("POST", `${buildAquariumPath(aquariumId)}/claim`);
+
+// request join
+export const requestToJoinAquarium = async aquariumId =>
+    sendJson("POST", `${buildAquariumPath(aquariumId)}/join-requests`);
+
+// cancel join
+export const cancelJoinRequest = async aquariumId =>
+    sendJson("DELETE", `${buildAquariumPath(aquariumId)}/join-requests/mine`);
+
+// join requests
+export const getJoinRequests = async aquariumId => requestBody(`${buildAquariumPath(aquariumId)}/join-requests`);
+
+// approve join
+export const approveJoinRequest = async (aquariumId, requestId) =>
+    sendJson("POST", `${buildAquariumPath(aquariumId)}/join-requests/${encodeURIComponent(requestId)}/approve`);
+
+// reject join
+export const rejectJoinRequest = async (aquariumId, requestId) =>
+    sendJson("POST", `${buildAquariumPath(aquariumId)}/join-requests/${encodeURIComponent(requestId)}/reject`);
+
+// device status
+export const getAquariumDevice = async aquariumId => requestBody(`${buildAquariumPath(aquariumId)}/device`);
+
+// register device
+export const registerAquariumDevice = async (aquariumId, name) =>
+    sendJson("POST", `${buildAquariumPath(aquariumId)}/devices`, { name });
+
+// rotate key
+export const rotateAquariumDeviceKey = async (aquariumId, deviceId) =>
+    sendJson("POST", `${buildAquariumPath(aquariumId)}/devices/${encodeURIComponent(deviceId)}/rotate-key`);
 
 // revoke device
-export const adminRevokeDevice = deviceId => sendJson("DELETE", `/api/admin/devices/${encodeURIComponent(deviceId)}`);
+export const revokeAquariumDevice = async (aquariumId, deviceId) =>
+    sendJson("DELETE", `${buildAquariumPath(aquariumId)}/devices/${encodeURIComponent(deviceId)}`);

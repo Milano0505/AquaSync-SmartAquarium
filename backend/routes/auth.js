@@ -1,19 +1,11 @@
 import { Router } from "express";
 import { queryDatabase, runInTransaction } from "../config/database.js";
-import { invalidateGlobalRole, requireUserAuth } from "../middleware/auth.js";
+import { requireUserAuth } from "../middleware/auth.js";
 import { addUserNotification } from "../utils/notification-records.js";
 import { isValidProfilePhotoUrl } from "../utils/profile-photo-validation.js";
 
 // router auth
 const authRouter = Router();
-
-// email admin
-const BOOTSTRAP_ADMIN_EMAILS = new Set(
-    (process.env.ADMIN_EMAILS || "")
-        .split(",")
-        .map(email => email.trim().toLowerCase())
-        .filter(Boolean),
-);
 
 // profil sesi
 function toSessionProfile(row) {
@@ -22,7 +14,6 @@ function toSessionProfile(row) {
         userId: row.id,
         fullName: row.full_name,
         email: row.email,
-        role: row.role === "admin" ? "admin" : "user",
         photoUrl: row.photo_url ?? null,
         createdAt: row.created_at,
     };
@@ -45,7 +36,6 @@ authRouter.post("/session", requireUserAuth, async (req, res) => {
             .json({ message: "Profile photo must be a small JPEG data URL, an HTTP(S) URL, or null." });
     }
 
-    const shouldPromoteToAdmin = BOOTSTRAP_ADMIN_EMAILS.has(email);
     const profileRow = await runInTransaction(async client => {
         // pastikan profil
         await client.query(
@@ -55,16 +45,14 @@ authRouter.post("/session", requireUserAuth, async (req, res) => {
         const { rows } = await client.query(
             `update profiles
              set photo_url = coalesce($2, photo_url),
-                 role = case when $3 then 'admin' else role end,
-                 updated_at = case when $2 is not null or ($3 and role <> 'admin') then now() else updated_at end
+                 updated_at = case when $2 is not null then now() else updated_at end
              where id = $1
              returning *`,
-            [userId, photoUrl, shouldPromoteToAdmin],
+            [userId, photoUrl],
         );
         return rows[0];
     });
 
-    invalidateGlobalRole(userId);
     return res.json({ userId, userProfile: toSessionProfile(profileRow) });
 });
 

@@ -1,8 +1,5 @@
-// peran ditetapkan
-export const ASSIGNABLE_MEMBER_ROLES = ["owner", "member"];
-
 // urutan peran
-const ROLE_RANK = { viewer: 1, member: 2, owner: 3, admin: 4 };
+const ROLE_RANK = { viewer: 1, member: 2, owner: 3 };
 
 // peran minimum
 export const hasMinimumRole = (role, minimumRole) => (ROLE_RANK[role] || 0) >= ROLE_RANK[minimumRole];
@@ -13,11 +10,3 @@ export const isValidAquariumId = value => typeof value === "string" && /^[A-Za-z
 // validasi uuid
 export const isUuid = value =>
     typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-
-// peran tertinggi
-export function highestAccessRole(globalRole, membershipRoles) {
-    if (globalRole === "admin") return "admin";
-    if (membershipRoles.includes("owner")) return "owner";
-    if (membershipRoles.includes("member")) return "member";
-    return "viewer";
-}

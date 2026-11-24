@@ -475,16 +475,14 @@ function AlertsTab({
 
 // about tab
 function AboutTab() {
-    const { aquariums, isAdmin } = useAuth();
+    const { aquariums } = useAuth();
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             {/* aquarium list */}
             <Card className="space-y-3 md:col-span-2">
-                <p className="text-sm font-bold text-slate-700">{isAdmin ? "All aquariums" : "Your aquariums"}</p>
+                <p className="text-sm font-bold text-slate-700">Your aquariums</p>
                 {aquariums.length === 0 ? (
-                    <p className="text-sm text-slate-400">
-                        {isAdmin ? "No aquariums yet. Create one in Access." : "You have no aquarium yet."}
-                    </p>
+                    <p className="text-sm text-slate-400">You have no aquarium yet. Create or join one in Aquariums.</p>
                 ) : (
                     <ul className="divide-y divide-slate-100">
                         {aquariums.map(item => (
@@ -635,7 +633,7 @@ export default function ConfigurationPage({ browserNotifications }) {
             <>
                 {isViewer && (
                     <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                        You have view-only access. Ask an admin to give you a role to change settings.
+                        You have view-only access. Join this aquarium from the Aquariums page to change settings.
                     </div>
                 )}
                 {/* disable controls */}

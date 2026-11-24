@@ -14,27 +14,13 @@ const supabaseTokenVerifier = createClient(process.env.SUPABASE_URL, process.env
 
 // cache auth
 const verifiedTokenCache = createTtlCache({ ttlMs: 30_000, maxEntries: 200 });
-const globalRoleCache = createTtlCache({ ttlMs: 300_000 });
 const deviceKeyCache = createTtlCache({ ttlMs: 300_000 });
 
 // hash kunci
 export const hashDeviceKey = deviceKey => createHash("sha256").update(deviceKey).digest("hex");
 
-// invalidasi peran
-export const invalidateGlobalRole = userId => globalRoleCache.delete(userId);
-
 // invalidasi kunci
 export const invalidateDeviceKeyCache = () => deviceKeyCache.clear();
-
-// peran global
-async function loadGlobalRole(userId) {
-    const cachedRole = globalRoleCache.get(userId);
-    if (cachedRole) return cachedRole;
-    const { rows } = await queryDatabase("select role from profiles where id = $1", [userId]);
-    const role = rows[0]?.role === "admin" ? "admin" : "user";
-    globalRoleCache.set(userId, role);
-    return role;
-}
 
 // verifikasi token
 async function verifyAccessToken(accessToken) {
@@ -62,16 +48,7 @@ export async function requireUserAuth(req, res, next) {
         userId: claims.sub,
         email: claims.email ? claims.email.toLowerCase() : null,
         name: claims.user_metadata?.full_name || null,
-        role: await loadGlobalRole(claims.sub),
     };
-    return next();
-}
-
-// middleware admin
-export function requireAdminRole(req, res, next) {
-    if (req.authUser?.role !== "admin") {
-        return res.status(403).json({ message: "This action requires the admin role." });
-    }
     return next();
 }
 

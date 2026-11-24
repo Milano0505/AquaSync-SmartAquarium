@@ -1,16 +1,25 @@
 import { Router } from "express";
+import { randomBytes } from "node:crypto";
+import { createDefaultAquariumConfig } from "../config/default-aquarium.js";
 import { buildAquariumResponse, extractConfigSections, findAccessibleAquarium } from "../config/aquarium-repository.js";
 import { queryDatabase, runInTransaction } from "../config/database.js";
-import { requireUserAuth } from "../middleware/auth.js";
-import { ASSIGNABLE_MEMBER_ROLES, hasMinimumRole, isUuid } from "../utils/access-roles.js";
+import { hashDeviceKey, invalidateDeviceKeyCache, requireUserAuth } from "../middleware/auth.js";
+import { isUuid, isValidAquariumId } from "../utils/access-roles.js";
 import { publishConfigChange } from "../utils/config-change-events.js";
 import { configFieldRules, validateTemperatureThresholds } from "../utils/config-validation.js";
-import { badRequestError, forbiddenError } from "../utils/http-errors.js";
-import { addAquariumNotification, VISIBLE_NOTIFICATION_CONDITION } from "../utils/notification-records.js";
+import { badRequestError, conflictError } from "../utils/http-errors.js";
+import {
+    addAquariumNotification,
+    addUserNotification,
+    VISIBLE_NOTIFICATION_CONDITION,
+} from "../utils/notification-records.js";
 
 // router akuarium
 const aquariumRouter = Router();
 aquariumRouter.use(requireUserAuth);
+
+// kode unique
+const PG_UNIQUE_VIOLATION_CODE = "23505";
 
 // not found
 const AQUARIUM_NOT_FOUND_RESPONSE = { message: "Aquarium was not found." };
@@ -198,27 +207,254 @@ async function queryTelemetryRecords(aquariumId, queryParams) {
     return rows;
 }
 
-// daftar akuarium
+// daftar akuarium milik saya
 aquariumRouter.get("/", async (req, res) => {
-    const { rows } =
-        req.authUser.role === "admin"
-            ? await queryDatabase("select id, name, 'admin' as role from aquariums order by name")
-            : await queryDatabase(
-                  `select id, name, role from (
-                       select a.id, a.name, m.role
-                       from aquarium_members m join aquariums a on a.id = m.aquarium_id
-                       where m.user_id = $1
-                       union all
-                       select a.id, a.name, 'viewer' as role
-                       from aquariums a
-                       where a.monitoring_public
-                         and not exists (select 1 from aquarium_members x where x.user_id = $1)
-                   ) access
-                   order by name`,
-                  [req.authUser.userId],
-              );
+    const { rows } = await queryDatabase(
+        `select a.id, a.name, m.role
+         from aquarium_members m join aquariums a on a.id = m.aquarium_id
+         where m.user_id = $1
+         order by a.name`,
+        [req.authUser.userId],
+    );
     return res.json({ aquariums: rows });
 });
+
+// direktori akuarium
+aquariumRouter.get("/directory", async (req, res) => {
+    const { rows } = await queryDatabase(
+        `select a.id, a.name, a.created_at as "createdAt",
+                (select json_build_object('userId', p.id, 'fullName', p.full_name)
+                 from aquarium_members m join profiles p on p.id = m.user_id
+                 where m.aquarium_id = a.id and m.role = 'owner') as owner,
+                coalesce(
+                    (select json_agg(json_build_object('userId', p.id, 'fullName', p.full_name) order by p.full_name)
+                     from aquarium_members m join profiles p on p.id = m.user_id
+                     where m.aquarium_id = a.id and m.role = 'member'),
+                    '[]'
+                ) as members,
+                (select m.role from aquarium_members m where m.aquarium_id = a.id and m.user_id = $1) as "myRole",
+                exists (select 1 from aquarium_join_requests r where r.aquarium_id = a.id and r.user_id = $1) as "joinRequestPending"
+         from aquariums a
+         order by a.name`,
+        [req.authUser.userId],
+    );
+    return res.json({ aquariums: rows });
+});
+
+// validasi nama
+function parseTrimmedName(value, fieldLabel) {
+    const name = typeof value === "string" ? value.trim() : "";
+    if (!name || name.length > 80) throw badRequestError(`${fieldLabel} must be between 1 and 80 characters.`);
+    return name;
+}
+
+// daftarkan perangkat
+async function registerDevice(client, aquariumId, name, userId) {
+    const deviceKey = randomBytes(32).toString("hex");
+    try {
+        const { rows } = await client.query(
+            "insert into devices (aquarium_id, name, key_hash, created_by) values ($1, $2, $3, $4) returning id",
+            [aquariumId, name, hashDeviceKey(deviceKey), userId],
+        );
+        return { id: rows[0].id, deviceKey };
+    } catch (error) {
+        if (error.code === PG_UNIQUE_VIOLATION_CODE) {
+            throw conflictError("This aquarium already has a device. Revoke it before registering a replacement.");
+        }
+        throw error;
+    }
+}
+
+// buat akuarium
+aquariumRouter.post("/", async (req, res) => {
+    const name = parseTrimmedName(req.body.name, "Aquarium name");
+    const requestedAquariumId = typeof req.body.id === "string" ? req.body.id.trim() : "";
+    if (requestedAquariumId && !isValidAquariumId(requestedAquariumId)) {
+        throw badRequestError("Aquarium ID may only contain letters, numbers, - and _ (up to 64 characters).");
+    }
+    const hasDeviceName = typeof req.body.deviceName === "string" && req.body.deviceName.trim() !== "";
+    const deviceName = hasDeviceName ? parseTrimmedName(req.body.deviceName, "Device name") : null;
+
+    const aquariumId = requestedAquariumId || `aquarium-${randomBytes(4).toString("hex")}`;
+    const defaultConfig = createDefaultAquariumConfig();
+    let device = null;
+    try {
+        await runInTransaction(async client => {
+            await client.query(
+                `insert into aquariums (id, name, hardware_info, temp_config, lighting_config, feeder_config, system_config, created_by)
+                 values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+                [
+                    aquariumId,
+                    name,
+                    defaultConfig.hardwareInfo,
+                    defaultConfig.tempConfig,
+                    defaultConfig.lightingConfig,
+                    defaultConfig.feederConfig,
+                    defaultConfig.systemConfig,
+                    req.authUser.userId,
+                ],
+            );
+            await client.query("insert into aquarium_members (aquarium_id, user_id, role) values ($1, $2, 'owner')", [
+                aquariumId,
+                req.authUser.userId,
+            ]);
+            if (deviceName) device = await registerDevice(client, aquariumId, deviceName, req.authUser.userId);
+        });
+    } catch (error) {
+        if (error.code === PG_UNIQUE_VIOLATION_CODE) throw conflictError("An aquarium with this ID already exists.");
+        throw error;
+    }
+    if (device) invalidateDeviceKeyCache();
+    return res.status(201).json({
+        id: aquariumId,
+        name,
+        deviceId: device?.id ?? null,
+        deviceKey: device?.deviceKey ?? null,
+        message: device ? "Aquarium created. Copy the device key now; it cannot be shown again." : "Aquarium created.",
+    });
+});
+
+// ganti nama
+aquariumRouter.patch("/:aquariumId", async (req, res) => {
+    const name = parseTrimmedName(req.body.name, "Aquarium name");
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    await queryDatabase("update aquariums set name = $2, updated_at = now() where id = $1", [aquarium.id, name]);
+    return res.json({ message: "Aquarium renamed." });
+});
+
+// hapus akuarium
+aquariumRouter.delete("/:aquariumId", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    await queryDatabase("delete from aquariums where id = $1", [aquarium.id]);
+    invalidateDeviceKeyCache();
+    return res.json({ message: "Aquarium deleted." });
+});
+
+// ambil alih
+aquariumRouter.post("/:aquariumId/claim", async (req, res) => {
+    const claimOutcome = await runInTransaction(async client => {
+        if (!isValidAquariumId(req.params.aquariumId)) return null;
+        const { rows } = await client.query("select id from aquariums where id = $1 for update", [
+            req.params.aquariumId,
+        ]);
+        if (!rows[0]) return null;
+        const { rowCount } = await client.query(
+            "select 1 from aquarium_members where aquarium_id = $1 and role = 'owner'",
+            [rows[0].id],
+        );
+        if (rowCount > 0) throw conflictError("This aquarium already has an owner.");
+        await client.query(
+            `insert into aquarium_members (aquarium_id, user_id, role) values ($1, $2, 'owner')
+             on conflict (aquarium_id, user_id) do update set role = 'owner'`,
+            [rows[0].id, req.authUser.userId],
+        );
+        await client.query("delete from aquarium_join_requests where aquarium_id = $1 and user_id = $2", [
+            rows[0].id,
+            req.authUser.userId,
+        ]);
+        return true;
+    });
+    if (!claimOutcome) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    return res.json({ message: "You are now the owner of this aquarium." });
+});
+
+// ajukan join
+aquariumRouter.post("/:aquariumId/join-requests", async (req, res) => {
+    const joinOutcome = await runInTransaction(async client => {
+        const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "viewer", {
+            client,
+            lock: true,
+        });
+        if (!aquarium) return null;
+        if (aquarium.role !== "viewer") throw conflictError("You are already part of this aquarium.");
+
+        const { rowCount } = await client.query(
+            `insert into aquarium_join_requests (aquarium_id, user_id) values ($1, $2)
+             on conflict (aquarium_id, user_id) do nothing`,
+            [aquarium.id, req.authUser.userId],
+        );
+        if (rowCount === 0) throw conflictError("Your join request is already pending.");
+
+        const actorName = await loadActorName(client, req.authUser.userId);
+        await addAquariumNotification(client, {
+            aquariumId: aquarium.id,
+            actorId: req.authUser.userId,
+            actorName,
+            title: "Join request",
+            message: `${actorName} asked to join this aquarium.`,
+        });
+        return true;
+    });
+    if (!joinOutcome) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    return res.status(201).json({ message: "Join request sent." });
+});
+
+// batalkan join
+aquariumRouter.delete("/:aquariumId/join-requests/mine", async (req, res) => {
+    if (!isValidAquariumId(req.params.aquariumId)) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    const { rowCount } = await queryDatabase(
+        "delete from aquarium_join_requests where aquarium_id = $1 and user_id = $2",
+        [req.params.aquariumId, req.authUser.userId],
+    );
+    if (rowCount === 0) return res.status(404).json({ message: "No pending join request was found." });
+    return res.json({ message: "Join request cancelled." });
+});
+
+// daftar join
+aquariumRouter.get("/:aquariumId/join-requests", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    const { rows } = await queryDatabase(
+        `select r.id, r.user_id as "userId", p.full_name as "fullName", p.email, r.created_at as "createdAt"
+         from aquarium_join_requests r join profiles p on p.id = r.user_id
+         where r.aquarium_id = $1
+         order by r.created_at`,
+        [aquarium.id],
+    );
+    return res.json({ joinRequests: rows });
+});
+
+// putuskan join
+function createJoinDecisionHandler(isApproved) {
+    return async (req, res) => {
+        const decisionOutcome = await runInTransaction(async client => {
+            const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner", {
+                client,
+                lock: true,
+            });
+            if (!aquarium || !isUuid(req.params.requestId)) return null;
+
+            const { rows } = await client.query(
+                "delete from aquarium_join_requests where id = $1 and aquarium_id = $2 returning user_id",
+                [req.params.requestId, aquarium.id],
+            );
+            if (!rows[0]) return null;
+
+            if (isApproved) {
+                await client.query(
+                    `insert into aquarium_members (aquarium_id, user_id, role) values ($1, $2, 'member')
+                     on conflict (aquarium_id, user_id) do nothing`,
+                    [aquarium.id, rows[0].user_id],
+                );
+            }
+            await addUserNotification(
+                client,
+                rows[0].user_id,
+                isApproved ? "Join request approved" : "Join request declined",
+                isApproved
+                    ? `You are now a member of ${aquarium.row.name}.`
+                    : `Your request to join ${aquarium.row.name} was declined.`,
+            );
+            return true;
+        });
+        if (!decisionOutcome) return res.status(404).json({ message: "Join request was not found." });
+        return res.json({ message: isApproved ? "Join request approved." : "Join request declined." });
+    };
+}
+aquariumRouter.post("/:aquariumId/join-requests/:requestId/approve", createJoinDecisionHandler(true));
+aquariumRouter.post("/:aquariumId/join-requests/:requestId/reject", createJoinDecisionHandler(false));
 
 // detail akuarium
 aquariumRouter.get("/:aquariumId", async (req, res) => {
@@ -387,69 +623,33 @@ aquariumRouter.delete("/:aquariumId/notifications/:notificationId", async (req, 
     return res.json({ message: "Notification deleted." });
 });
 
-// daftar member
+// daftar anggota
 aquariumRouter.get("/:aquariumId/members", async (req, res) => {
-    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "member");
     if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
 
     const { rows } = await queryDatabase(
         `select m.user_id as "userId", m.role, p.full_name as "fullName", p.email
          from aquarium_members m join profiles p on p.id = m.user_id
-         where m.aquarium_id = $1 and ($2 or m.role = 'member')
+         where m.aquarium_id = $1
          order by m.role desc, p.full_name`,
-        [aquarium.id, hasMinimumRole(aquarium.role, "admin")],
+        [aquarium.id],
     );
     return res.json({ members: rows });
 });
 
-// kandidat member
-aquariumRouter.get("/:aquariumId/candidates", async (req, res) => {
-    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+// keluar akuarium
+aquariumRouter.delete("/:aquariumId/members/me", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "member");
     if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
-
-    const { rows } = await queryDatabase(
-        `select p.id as "userId", p.full_name as "fullName", p.email
-         from profiles p
-         where p.role <> 'admin'
-           and not exists (select 1 from aquarium_members m where m.aquarium_id = $1 and m.user_id = p.id)
-         order by p.full_name, p.email`,
-        [aquarium.id],
-    );
-    return res.json({ candidates: rows });
-});
-
-// simpan member
-aquariumRouter.put("/:aquariumId/members", async (req, res) => {
-    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
-    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
-
-    const { role } = req.body;
-    const email = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : "";
-    if ((!isUuid(req.body.userId) && !email) || !ASSIGNABLE_MEMBER_ROLES.includes(role)) {
-        throw badRequestError('Provide a user (userId or email) and a role of "owner" or "member".');
+    if (aquarium.role === "owner") {
+        throw badRequestError("The owner cannot leave the aquarium. Delete the aquarium instead.");
     }
-
-    const targetUsers = isUuid(req.body.userId)
-        ? await queryDatabase("select id, role from profiles where id = $1", [req.body.userId])
-        : await queryDatabase("select id, role from profiles where email = $1", [email]);
-    if (!targetUsers.rows[0]) return res.status(404).json({ message: "User was not found." });
-    const userId = targetUsers.rows[0].id;
-    if (targetUsers.rows[0].role === "admin") throw badRequestError("Admins already have access to every aquarium.");
-
-    const existingMembership = await queryDatabase(
-        "select role from aquarium_members where aquarium_id = $1 and user_id = $2",
-        [aquarium.id, userId],
-    );
-    if (!hasMinimumRole(aquarium.role, "admin") && (role === "owner" || existingMembership.rows[0]?.role === "owner")) {
-        throw forbiddenError("Only an admin can assign or change an owner.");
-    }
-
-    await queryDatabase(
-        `insert into aquarium_members (aquarium_id, user_id, role) values ($1, $2, $3)
-         on conflict (aquarium_id, user_id) do update set role = excluded.role`,
-        [aquarium.id, userId, role],
-    );
-    return res.json({ userId, role, message: "Member saved." });
+    await queryDatabase("delete from aquarium_members where aquarium_id = $1 and user_id = $2", [
+        aquarium.id,
+        req.authUser.userId,
+    ]);
+    return res.json({ message: "You left the aquarium." });
 });
 
 // hapus member
@@ -467,12 +667,73 @@ aquariumRouter.delete("/:aquariumId/members/:userId", async (req, res) => {
     );
     const memberRole = existingMembership.rows[0]?.role;
     if (!memberRole) return res.status(404).json(notMemberResponse);
-    if (memberRole === "owner" && !hasMinimumRole(aquarium.role, "admin")) {
-        throw forbiddenError("Only an admin can remove an owner.");
-    }
+    if (memberRole === "owner") throw badRequestError("The owner cannot be removed.");
 
     await queryDatabase("delete from aquarium_members where aquarium_id = $1 and user_id = $2", [aquarium.id, userId]);
     return res.json({ message: "Member removed." });
+});
+
+// status perangkat
+aquariumRouter.get("/:aquariumId/device", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "member");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    const { rows } = await queryDatabase(
+        `select id, name, created_at as "createdAt" from devices where aquarium_id = $1`,
+        [aquarium.id],
+    );
+    return res.json({ device: rows[0] ?? null });
+});
+
+// daftar perangkat
+aquariumRouter.post("/:aquariumId/devices", async (req, res) => {
+    const name = parseTrimmedName(req.body.name, "Device name");
+    const device = await runInTransaction(async client => {
+        const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner", {
+            client,
+            lock: true,
+        });
+        if (!aquarium) return null;
+        return registerDevice(client, aquarium.id, name, req.authUser.userId);
+    });
+    if (!device) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    invalidateDeviceKeyCache();
+    return res.status(201).json({
+        id: device.id,
+        deviceKey: device.deviceKey,
+        message: "Device registered. Copy the key now; it cannot be shown again.",
+    });
+});
+
+// ganti kunci
+aquariumRouter.post("/:aquariumId/devices/:deviceId/rotate-key", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    if (!isUuid(req.params.deviceId)) return res.status(404).json({ message: "Device was not found." });
+
+    const deviceKey = randomBytes(32).toString("hex");
+    const { rowCount } = await queryDatabase("update devices set key_hash = $3 where id = $1 and aquarium_id = $2", [
+        req.params.deviceId,
+        aquarium.id,
+        hashDeviceKey(deviceKey),
+    ]);
+    if (rowCount === 0) return res.status(404).json({ message: "Device was not found." });
+    invalidateDeviceKeyCache();
+    return res.json({ deviceKey, message: "New key created. The old key no longer works. Copy it now." });
+});
+
+// cabut perangkat
+aquariumRouter.delete("/:aquariumId/devices/:deviceId", async (req, res) => {
+    const aquarium = await findAccessibleAquarium(req.params.aquariumId, req.authUser, "owner");
+    if (!aquarium) return res.status(404).json(AQUARIUM_NOT_FOUND_RESPONSE);
+    if (!isUuid(req.params.deviceId)) return res.status(404).json({ message: "Device was not found." });
+
+    const { rowCount } = await queryDatabase("delete from devices where id = $1 and aquarium_id = $2", [
+        req.params.deviceId,
+        aquarium.id,
+    ]);
+    if (rowCount === 0) return res.status(404).json({ message: "Device was not found." });
+    invalidateDeviceKeyCache();
+    return res.json({ message: "Device revoked." });
 });
 
 export default aquariumRouter;

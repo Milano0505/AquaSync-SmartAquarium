@@ -7,3 +7,8 @@ export function badRequestError(message) {
 export function forbiddenError(message) {
     return Object.assign(new Error(message), { status: 403 });
 }
+
+// error 409
+export function conflictError(message) {
+    return Object.assign(new Error(message), { status: 409 });
+}
